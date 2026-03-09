@@ -8,11 +8,12 @@
   <img src="https://img.shields.io/badge/Docker-Required-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
   <img src="https://img.shields.io/badge/Ubuntu-24.04-E95420?style=for-the-badge&logo=ubuntu&logoColor=white" />
   <img src="https://img.shields.io/badge/Telegram-Alerts-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" />
+  <img src="https://img.shields.io/badge/Fabio-1.6.2-8B5CF6?style=for-the-badge&logo=loadbalancer&logoColor=white" />
 </p>
 
-**Automated setup script for deploying a production-ready Nomad & Consul cluster with Docker support and real-time Telegram monitoring**
+**Automated setup for a production-ready Nomad & Consul cluster with Docker, Fabio load balancer, and real-time Telegram monitoring**
 
-**سكربت آلي لنشر كلاستر Nomad & Consul جاهز للإنتاج مع دعم Docker ونظام مراقبة فوري عبر تلجرام**
+**بيئة إنتاجية متكاملة لكلاستر Nomad & Consul مع Docker وموزع أحمال Fabio ونظام مراقبة فوري عبر تلجرام**
 
 <br/>
 
@@ -37,6 +38,7 @@
 - [Verification](#-verification)
 - [Web UIs](#-web-uis)
 - [Monitoring & Alerts (Nomad Watcher)](#-monitoring--alerts-nomad-watcher)
+- [Load Balancer (Fabio)](#-load-balancer-fabio)
 - [Troubleshooting](#-troubleshooting)
 - [Useful Commands](#-useful-commands)
 
@@ -382,6 +384,7 @@ Once the server is set up, you can access the management dashboards:
 |---------|-----|-------------|
 | **Consul** | `http://<SERVER_IP>:8500` | Service discovery, health checks, KV store |
 | **Nomad** | `http://<SERVER_IP>:4646` | Job management, cluster monitoring |
+| **Fabio** | `http://<SERVER_IP>:9998` | Load balancer routing table & dashboard |
 
 ---
 
@@ -509,6 +512,171 @@ sudo systemctl stop nomad-watcher
 
 ---
 
+## ⚖️ Load Balancer (Fabio)
+
+Fabio is a **fast, zero-configuration load balancer** designed specifically for services registered in **Consul**. It automatically discovers your services and routes HTTP/TCP traffic to them — no manual config files, no restarts.
+
+### Why Use a Load Balancer?
+
+> [!IMPORTANT]
+> Without a load balancer, you'd have to access each application using the **specific IP and port** of the node it's running on. If that node goes down and Nomad moves the app to another node, the IP and port change. A load balancer like Fabio solves this by providing a **single, stable entry point** that automatically routes to wherever the app is currently running.
+
+**Key benefits of a load balancer:**
+
+| Benefit | Description |
+|---------|-------------|
+| 🔄 **Automatic Failover** | Traffic is rerouted instantly when a node goes down |
+| 📊 **Load Distribution** | Distributes requests evenly across multiple instances |
+| 🎯 **Single Entry Point** | One URL/IP for users regardless of which backend node is serving |
+| 🚀 **Zero Downtime** | Rolling deployments without dropping connections |
+| 📈 **Scalability** | Add more instances and Fabio discovers them automatically |
+
+### Why Fabio Specifically?
+
+Unlike traditional load balancers (Nginx, HAProxy) that require manual configuration files, Fabio:
+
+- **Auto-discovers services** from Consul — no config files needed
+- **Updates routing in real-time** when services are added, removed, or moved
+- **Uses service tags** in Consul to define routing rules
+- **Provides a built-in UI** to view all routes and their status
+- Was **built for** Nomad + Consul environments
+
+### How It Works
+
+```
+                          ┌──────────────────┐
+                          │   Consul         │
+                          │   Service        │
+                          │   Registry       │
+                          └────────┬─────────┘
+                                   │
+                          Discovers services
+                          with urlprefix- tag
+                                   │
+┌──────────┐              ┌────────▼─────────┐              ┌──────────────┐
+│          │   Request    │                  │   Route to   │  Node 1      │
+│  User /  │─────────────►│     Fabio        │─────────────►│  App (port X)│
+│  Client  │   :9999      │  Load Balancer   │              └──────────────┘
+│          │              │                  │──────┐
+└──────────┘              └──────────────────┘      │       ┌──────────────┐
+                                                   └──────►│  Node 2      │
+                                                           │  App (port Y)│
+                                                           └──────────────┘
+```
+
+**Flow:**
+1. Nomad deploys your application on available client nodes
+2. Consul registers the service with a special tag (e.g., `urlprefix-/`)
+3. Fabio reads Consul's service catalog and builds a routing table automatically
+4. All incoming traffic on port `9999` is routed to healthy service instances
+5. If a node dies, Consul deregisters it → Fabio removes it from routing instantly
+
+### Installation (3 Simple Steps)
+
+> [!NOTE]
+> Run these commands on the **server node** (or any node that will act as the load balancer entry point).
+
+```bash
+# Step 1: Download Fabio binary
+wget -O fabio https://github.com/fabiolb/fabio/releases/download/v1.6.2/fabio-1.6.2-linux_amd64
+
+# Step 2: Make it executable
+chmod +x fabio
+
+# Step 3: Run Fabio
+sudo ./fabio
+```
+
+### What Happens After Running Fabio?
+
+Once you execute `sudo ./fabio`, the following happens:
+
+| Event | Description |
+|-------|-------------|
+| 🔗 **Connects to Consul** | Fabio connects to the local Consul agent at `127.0.0.1:8500` |
+| 📡 **Scans services** | It scans all registered services looking for the `urlprefix-` tag |
+| 🗺️ **Builds routing table** | Automatically creates routes based on service tags |
+| 🌐 **Opens port 9999** | Starts listening for incoming HTTP traffic on port `9999` |
+| 📊 **Opens port 9998** | Starts the Fabio admin UI/dashboard on port `9998` |
+| 🔄 **Watches for changes** | Continuously watches Consul for service changes and updates routes in real-time |
+
+> [!TIP]
+> For your Nomad job to be discoverable by Fabio, your service definition must include a tag like `urlprefix-/`. Example in a Nomad job file:
+> ```hcl
+> service {
+>   name = "demo-app"
+>   tags = ["urlprefix-/"]
+>   port = "http"
+>   provider = "consul"
+> }
+> ```
+
+### Fabio Ports
+
+| Port | Purpose |
+|------|---------|
+| `9999` | **Proxy port** — All user traffic goes here and is routed to backend services |
+| `9998` | **Admin UI** — Dashboard showing all routes, services, and their health |
+
+### Access the Fabio Dashboard
+
+Open your browser and navigate to:
+
+```
+http://<SERVER_IP>:9998
+```
+
+You will see a live routing table showing:
+- All discovered services
+- Their target addresses and ports
+- Traffic weight distribution
+- Health status
+
+### Run Fabio as a systemd Service (Recommended)
+
+For production, create a systemd service so Fabio starts automatically:
+
+```bash
+# Move the binary to a system path
+sudo mv fabio /usr/local/bin/fabio
+
+# Create a systemd service
+sudo tee /etc/systemd/system/fabio.service > /dev/null <<EOF
+[Unit]
+Description=Fabio Load Balancer
+After=consul.service
+Requires=consul.service
+
+[Service]
+ExecStart=/usr/local/bin/fabio
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable fabio
+sudo systemctl start fabio
+```
+
+### Verify Fabio
+
+```bash
+# Check the service status
+sudo systemctl status fabio
+
+# Check if ports are listening
+ss -tlnp | grep -E '9998|9999'
+
+# Test the routing (after deploying a job)
+curl http://localhost:9999/
+```
+
+---
+
 ## 🛠️ Troubleshooting
 
 <details>
@@ -575,6 +743,22 @@ newgrp docker
 
 </details>
 
+<details>
+<summary><b>❌ Fabio shows no routes / empty routing table</b></summary>
+
+1. Ensure **Consul** is running and services are registered:
+   ```bash
+   consul catalog services
+   ```
+2. Verify your Nomad job has the `urlprefix-` tag in its service block
+3. Check Fabio logs:
+   ```bash
+   sudo journalctl -u fabio -f
+   ```
+4. Ensure port `9998` and `9999` are open and not blocked by firewall
+
+</details>
+
 ---
 
 ## 📌 Useful Commands
@@ -603,6 +787,11 @@ nomad job run <file.nomad>  # Deploy a job
 # ─── Monitoring ───
 sudo systemctl status nomad-watcher   # Check watcher status
 sudo journalctl -u nomad-watcher -f   # View watcher logs
+
+# ─── Fabio Load Balancer ───
+sudo systemctl status fabio           # Check Fabio status
+sudo systemctl restart fabio          # Restart Fabio
+curl http://localhost:9999/           # Test routing
 ```
 
 ---
@@ -629,6 +818,7 @@ sudo journalctl -u nomad-watcher -f   # View watcher logs
 - [التحقق من التشغيل](#-التحقق-من-التشغيل)
 - [واجهات الويب](#-واجهات-الويب)
 - [المراقبة والتنبيهات (Nomad Watcher)](#-المراقبة-والتنبيهات-nomad-watcher)
+- [موزع الأحمال (Fabio)](#-موزع-الأحمال-fabio)
 - [حل المشاكل](#-حل-المشاكل)
 - [أوامر مفيدة](#-أوامر-مفيدة)
 
@@ -1101,6 +1291,171 @@ sudo systemctl stop nomad-watcher
 
 ---
 
+## ⚖️ موزع الأحمال (Fabio)
+
+Fabio هو **موزع أحمال سريع لا يحتاج إلى أي إعدادات** مصمم خصيصاً للخدمات المسجلة في **Consul**. يكتشف خدماتك تلقائياً ويوجه حركة HTTP/TCP إليها — بدون ملفات إعدادات، بدون إعادة تشغيل.
+
+### لماذا نحتاج موزع أحمال؟
+
+> [!IMPORTANT]
+> بدون موزع أحمال، ستضطر للوصول لكل تطبيق باستخدام **عنوان IP ومنفذ محدد** للنود التي يعمل عليها. إذا توقفت تلك النود ونقل Nomad التطبيق لنود أخرى، يتغير العنوان والمنفذ. موزع الأحمال مثل Fabio يحل هذه المشكلة بتوفير **نقطة دخول واحدة وثابتة** توجه تلقائياً للمكان الذي يعمل فيه التطبيق حالياً.
+
+**الفوائد الرئيسية لموزع الأحمال:**
+
+| الفائدة | الوصف |
+|---------|-------|
+| 🔄 **انتقال تلقائي** | توجيه حركة المرور فوراً عند توقف نود |
+| 📊 **توزيع الحمل** | توزيع الطلبات بالتساوي بين عدة نسخ من التطبيق |
+| 🎯 **نقطة دخول واحدة** | عنوان URL/IP واحد للمستخدمين بغض النظر عن النود التي تخدم |
+| 🚀 **صفر توقف** | نشر التحديثات بدون انقطاع الاتصالات |
+| 📈 **قابلية التوسع** | أضف نسخاً جديدة ويكتشفها Fabio تلقائياً |
+
+### لماذا Fabio تحديداً؟
+
+على عكس موزعات الأحمال التقليدية (Nginx, HAProxy) التي تحتاج ملفات إعدادات يدوية، Fabio:
+
+- **يكتشف الخدمات تلقائياً** من Consul — لا يحتاج ملفات إعدادات
+- **يحدّث التوجيه في الوقت الفعلي** عند إضافة أو إزالة أو نقل الخدمات
+- **يستخدم وسوم الخدمات** في Consul لتحديد قواعد التوجيه
+- **يوفر واجهة ويب مدمجة** لعرض جميع المسارات وحالتها
+- **صُمم خصيصاً** لبيئات Nomad + Consul
+
+### كيف يعمل؟
+
+```
+                          ┌──────────────────┐
+                          │   Consul         │
+                          │   سجل الخدمات    │
+                          │                  │
+                          └────────┬─────────┘
+                                   │
+                         يكتشف الخدمات
+                         بوسم urlprefix-
+                                   │
+┌──────────┐              ┌────────▼─────────┐              ┌──────────────┐
+│          │   طلب        │                  │   توجيه إلى  │  نود 1       │
+│ المستخدم │─────────────►│     Fabio        │─────────────►│  التطبيق     │
+│          │   :9999      │  موزع الأحمال    │              └──────────────┘
+│          │              │                  │──────┐
+└──────────┘              └──────────────────┘      │       ┌──────────────┐
+                                                   └──────►│  نود 2       │
+                                                           │  التطبيق     │
+                                                           └──────────────┘
+```
+
+**التدفق:**
+1. Nomad ينشر تطبيقك على النودات المتاحة
+2. Consul يسجل الخدمة بوسم خاص (مثل `urlprefix-/`)
+3. Fabio يقرأ كتالوج خدمات Consul ويبني جدول توجيه تلقائياً
+4. كل حركة المرور الواردة على المنفذ `9999` يتم توجيهها لنسخ الخدمة السليمة
+5. إذا توقفت نود، يلغي Consul تسجيلها → Fabio يزيلها من التوجيه فوراً
+
+### التثبيت (3 خطوات بسيطة)
+
+> [!NOTE]
+> نفّذ هذه الأوامر على **نود السيرفر** (أو أي نود ستكون نقطة الدخول لموزع الأحمال).
+
+```bash
+# الخطوة 1: تحميل ملف Fabio
+wget -O fabio https://github.com/fabiolb/fabio/releases/download/v1.6.2/fabio-1.6.2-linux_amd64
+
+# الخطوة 2: إعطاء صلاحية التنفيذ
+chmod +x fabio
+
+# الخطوة 3: تشغيل Fabio
+sudo ./fabio
+```
+
+### ماذا يحدث بعد تشغيل Fabio؟
+
+عند تنفيذ `sudo ./fabio`، يحدث التالي:
+
+| الحدث | الوصف |
+|-------|-------|
+| 🔗 **الاتصال بـ Consul** | يتصل Fabio بوكيل Consul المحلي على `127.0.0.1:8500` |
+| 📡 **فحص الخدمات** | يفحص جميع الخدمات المسجلة بحثاً عن وسم `urlprefix-` |
+| 🗺️ **بناء جدول التوجيه** | ينشئ تلقائياً مسارات بناءً على وسوم الخدمات |
+| 🌐 **فتح المنفذ 9999** | يبدأ بالاستماع لحركة HTTP الواردة على المنفذ `9999` |
+| 📊 **فتح المنفذ 9998** | يشغّل واجهة الإدارة/لوحة التحكم على المنفذ `9998` |
+| 🔄 **المراقبة المستمرة** | يراقب Consul باستمرار لأي تغييرات في الخدمات ويحدّث المسارات فورياً |
+
+> [!TIP]
+> لكي يكتشف Fabio مهمة Nomad الخاصة بك، يجب أن يتضمن تعريف الخدمة وسماً مثل `urlprefix-/`. مثال في ملف مهمة Nomad:
+> ```hcl
+> service {
+>   name = "demo-app"
+>   tags = ["urlprefix-/"]
+>   port = "http"
+>   provider = "consul"
+> }
+> ```
+
+### منافذ Fabio
+
+| المنفذ | الوظيفة |
+|--------|--------|
+| `9999` | **منفذ البروكسي** — كل حركة المستخدمين تمر من هنا ويتم توجيهها للخدمات الخلفية |
+| `9998` | **واجهة الإدارة** — لوحة تحكم تعرض جميع المسارات والخدمات وحالتها الصحية |
+
+### الوصول للوحة تحكم Fabio
+
+افتح المتصفح وانتقل إلى:
+
+```
+http://<عنوان_IP_السيرفر>:9998
+```
+
+ستشاهد جدول توجيه مباشر يعرض:
+- جميع الخدمات المكتشفة
+- عناوين ومنافذ الوجهات
+- توزيع حمل حركة المرور
+- الحالة الصحية
+
+### تشغيل Fabio كخدمة systemd (الطريقة المُوصى بها)
+
+للاستخدام في الإنتاج، أنشئ خدمة systemd ليعمل Fabio تلقائياً:
+
+```bash
+# نقل الملف لمسار النظام
+sudo mv fabio /usr/local/bin/fabio
+
+# إنشاء خدمة systemd
+sudo tee /etc/systemd/system/fabio.service > /dev/null <<EOF
+[Unit]
+Description=Fabio Load Balancer
+After=consul.service
+Requires=consul.service
+
+[Service]
+ExecStart=/usr/local/bin/fabio
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable fabio
+sudo systemctl start fabio
+```
+
+### التحقق من Fabio
+
+```bash
+# التحقق من حالة الخدمة
+sudo systemctl status fabio
+
+# التحقق من المنافذ
+ss -tlnp | grep -E '9998|9999'
+
+# اختبار التوجيه (بعد نشر مهمة)
+curl http://localhost:9999/
+```
+
+---
+
 ## 🛠️ حل المشاكل
 
 <details>
@@ -1167,6 +1522,22 @@ newgrp docker
 
 </details>
 
+<details>
+<summary><b>❌ Fabio لا يعرض مسارات / جدول التوجيه فارغ</b></summary>
+
+1. تأكد أن **Consul** يعمل والخدمات مسجلة:
+   ```bash
+   consul catalog services
+   ```
+2. تأكد أن مهمة Nomad تحتوي على وسم `urlprefix-` في كتلة الخدمة
+3. تحقق من سجلات Fabio:
+   ```bash
+   sudo journalctl -u fabio -f
+   ```
+4. تأكد أن المنفذين `9998` و `9999` مفتوحان وغير محظورين بجدار الحماية
+
+</details>
+
 ---
 
 ## 📌 أوامر مفيدة
@@ -1195,6 +1566,11 @@ nomad job run <file.nomad>  # نشر مهمة
 # ─── المراقبة ───
 sudo systemctl status nomad-watcher   # حالة سكربت المراقبة
 sudo journalctl -u nomad-watcher -f   # عرض سجلات المراقبة
+
+# ─── موزع الأحمال Fabio ───
+sudo systemctl status fabio           # حالة Fabio
+sudo systemctl restart fabio          # إعادة تشغيل Fabio
+curl http://localhost:9999/           # اختبار التوجيه
 ```
 
 ---
