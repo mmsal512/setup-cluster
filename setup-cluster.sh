@@ -38,8 +38,8 @@ if [[ -z "$NODE_ROLE" || -z "$NOMAD_SERVER_IP" ]]; then
     echo "  Client:  sudo bash $0 client <SERVER_IP> <CONSUL_KEY>"
     echo ""
     echo "Example:"
-    echo "  sudo bash $0 server 172.29.203.183"
-    echo "  sudo bash $0 client 172.29.203.183 RBgDvT73wRJQ8PbgG..."
+    echo "  sudo bash $0 server 192.168.1.10"
+    echo "  sudo bash $0 client 192.168.1.10 RBgDvT73wRJQ8PbgG..."
     exit 1
 fi
 
