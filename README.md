@@ -1,17 +1,18 @@
 <div align="center">
 
-# 🚀 Nomad & Consul Cluster Setup
+# 🚀 Nomad & Consul Cluster Setup + Monitoring
 
 <p>
   <img src="https://img.shields.io/badge/Nomad-1.9.7-00CA8E?style=for-the-badge&logo=nomad&logoColor=white" />
   <img src="https://img.shields.io/badge/Consul-1.22.5-F24C53?style=for-the-badge&logo=consul&logoColor=white" />
   <img src="https://img.shields.io/badge/Docker-Required-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
   <img src="https://img.shields.io/badge/Ubuntu-24.04-E95420?style=for-the-badge&logo=ubuntu&logoColor=white" />
+  <img src="https://img.shields.io/badge/Telegram-Alerts-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" />
 </p>
 
-**Automated setup script for deploying a production-ready Nomad & Consul cluster with Docker support**
+**Automated setup script for deploying a production-ready Nomad & Consul cluster with Docker support and real-time Telegram monitoring**
 
-**سكربت آلي لنشر كلاستر Nomad & Consul جاهز للإنتاج مع دعم Docker**
+**سكربت آلي لنشر كلاستر Nomad & Consul جاهز للإنتاج مع دعم Docker ونظام مراقبة فوري عبر تلجرام**
 
 <br/>
 
@@ -35,6 +36,7 @@
 - [Docker Hub Mirror (For Geo-Blocked Regions)](#-docker-hub-mirror-for-geo-blocked-regions)
 - [Verification](#-verification)
 - [Web UIs](#-web-uis)
+- [Monitoring & Alerts (Nomad Watcher)](#-monitoring--alerts-nomad-watcher)
 - [Troubleshooting](#-troubleshooting)
 - [Useful Commands](#-useful-commands)
 
@@ -42,9 +44,14 @@
 
 ## 🔍 Overview
 
-This project provides a **single, production-ready Bash script** (`setup-cluster.sh`) that automates the entire process of deploying a **HashiCorp Nomad & Consul** cluster on Ubuntu 24.04 servers.
+This project provides **two production-ready Bash scripts** for deploying and monitoring a **HashiCorp Nomad & Consul** cluster on Ubuntu 24.04 servers:
 
-### What the script does:
+| Script | Purpose |
+|--------|---------|
+| `setup-cluster.sh` | Automates the entire cluster deployment (Nomad + Consul + Docker) |
+| `nomad-watcher.sh` | Monitors running jobs and sends real-time Telegram alerts on failover events |
+
+### What `setup-cluster.sh` does:
 
 | Step | Description |
 |:----:|-------------|
@@ -56,34 +63,52 @@ This project provides a **single, production-ready Bash script** (`setup-cluster
 | 6️⃣ | Starts all services and enables auto-start on boot |
 | 7️⃣ | Runs **verification checks** to confirm everything is working |
 
+### What `nomad-watcher.sh` does:
+
+| Feature | Description |
+|:-------:|-------------|
+| 👀 | Continuously monitors a specified Nomad job every **5 seconds** |
+| 🔄 | Detects **failover events** — when a job migrates from one node to another |
+| 📱 | Sends **instant Telegram alerts** with full details (old node, new node, IDs) |
+| 🚀 | Notifies on **first-time job launches** |
+| 🛡️ | Auto-cleans Windows line endings (**CRLF → LF**) |
+
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│               NOMAD & CONSUL CLUSTER            │
-├─────────────────────────────────────────────────┤
-│                                                 │
-│   ┌─────────────┐         ┌─────────────┐      │
-│   │   SERVER     │         │   CLIENT    │      │
-│   │ ───────────  │         │ ──────────  │      │
-│   │ Nomad Server │◄───────►│ Nomad Client│      │
-│   │ Consul Server│◄───────►│ Consul Agent│      │
-│   │ Docker       │         │ Docker      │      │
-│   └──────┬───────┘         └──────┬──────┘      │
-│          │                        │              │
-│          │    ┌─────────────┐     │              │
-│          └───►│   CLIENT    │◄────┘              │
-│               │ ──────────  │                    │
-│               │ Nomad Client│                    │
-│               │ Consul Agent│                    │
-│               │ Docker      │                    │
-│               └─────────────┘                    │
-│                                                  │
-│   🌐 Consul UI: http://<SERVER_IP>:8500          │
-│   🌐 Nomad  UI: http://<SERVER_IP>:4646          │
-└─────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                 NOMAD & CONSUL CLUSTER                   │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│   ┌─────────────┐         ┌─────────────┐               │
+│   │   SERVER     │         │   CLIENT    │               │
+│   │ ───────────  │         │ ──────────  │               │
+│   │ Nomad Server │◄───────►│ Nomad Client│               │
+│   │ Consul Server│◄───────►│ Consul Agent│               │
+│   │ Docker       │         │ Docker      │               │
+│   └──────┬───────┘         └──────┬──────┘               │
+│          │                        │                      │
+│          │    ┌─────────────┐     │                      │
+│          └───►│   CLIENT    │◄────┘                      │
+│               │ ──────────  │                            │
+│               │ Nomad Client│                            │
+│               │ Consul Agent│                            │
+│               │ Docker      │                            │
+│               └─────────────┘                            │
+│                                                          │
+│   🌐 Consul UI: http://<SERVER_IP>:8500                  │
+│   🌐 Nomad  UI: http://<SERVER_IP>:4646                  │
+│                                                          │
+│   ┌──────────────────────────────────────┐               │
+│   │  📡 NOMAD WATCHER (Monitoring)       │               │
+│   │  ─────────────────────────────────   │               │
+│   │  🔍 Polls job status every 5s        │               │
+│   │  🚨 Detects node failover            │               │
+│   │  📱 Sends Telegram alerts            │               │
+│   └──────────────────────────────────────┘               │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -360,6 +385,130 @@ Once the server is set up, you can access the management dashboards:
 
 ---
 
+## 📡 Monitoring & Alerts (Nomad Watcher)
+
+The `nomad-watcher.sh` script provides **real-time monitoring** of your Nomad jobs with **instant Telegram notifications** for failover events.
+
+### How It Works
+
+```
+┌──────────────┐     Poll every 5s     ┌──────────────┐
+│              │ ───────────────────►   │              │
+│  Watcher     │   nomad job allocs    │  Nomad       │
+│  Script      │ ◄───────────────────  │  Cluster     │
+│              │   allocation data     │              │
+└──────┬───────┘                       └──────────────┘
+       │
+       │  On failover or first launch
+       ▼
+┌──────────────┐     HTTP POST         ┌──────────────┐
+│              │ ───────────────────►   │              │
+│  curl        │   /sendMessage        │  Telegram    │
+│              │                       │  Bot API     │
+└──────────────┘                       └──────────────┘
+```
+
+### Prerequisites for Watcher
+
+1. **Nomad CLI** must be installed and accessible on the machine
+2. **A Telegram Bot** — Create one via [@BotFather](https://t.me/BotFather) on Telegram
+3. **Your Chat ID** — Get it from [@userinfobot](https://t.me/userinfobot) or [@RawDataBot](https://t.me/RawDataBot)
+
+### Setup
+
+#### 1. Configure Credentials
+
+Edit `nomad-watcher.sh` and fill in your Telegram details:
+
+```bash
+TOKEN="YOUR_TELEGRAM_BOT_TOKEN"       # ← Your bot token from @BotFather
+CHAT_ID="YOUR_TELEGRAM_CHAT_ID"       # ← Your chat ID
+JOB_NAME="demo-app"                   # ← The Nomad job name to monitor
+```
+
+#### 2. Transfer & Run
+
+```bash
+# Transfer to your server
+scp nomad-watcher.sh user@<SERVER_IP>:~/nomad-watcher.sh
+
+# Make it executable
+chmod +x nomad-watcher.sh
+
+# Run in the background
+nohup bash nomad-watcher.sh &> /var/log/nomad-watcher.log &
+```
+
+> [!TIP]
+> Run the watcher on the **server node** where Nomad CLI has full access to query job allocations.
+
+#### 3. Run as a systemd Service (Recommended)
+
+For production use, create a systemd service so the watcher starts automatically on boot:
+
+```bash
+sudo tee /etc/systemd/system/nomad-watcher.service > /dev/null <<EOF
+[Unit]
+Description=Nomad Job Watcher with Telegram Alerts
+After=nomad.service
+Requires=nomad.service
+
+[Service]
+ExecStart=/bin/bash /root/nomad-watcher.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable nomad-watcher
+sudo systemctl start nomad-watcher
+```
+
+### Alert Examples
+
+**🚀 First Launch Alert:**
+```
+✅ نظام Nomad:
+التطبيق [demo-app] بدأ العمل بنجاح على السيرفر:
+[client-01]
+(ID: a1b2c3d4)
+```
+
+**🚨 Failover Alert:**
+```
+🚨 ⚠️ تنبيه طوارئ (Failover) ⚠️
+
+⛔️ السيرفر السابق: [client-01]
+(ID: a1b2c3d4)
+انقطع الاتصال به أو توقف!
+
+✅ النظام تدخل تلقائياً لحماية الخدمة.
+🚀 التطبيق تم نقله ويعمل الآن بنجاح على السيرفر البديل:
+[client-02]
+(ID: e5f6g7h8)
+```
+
+### Watcher Commands
+
+```bash
+# Check watcher status
+sudo systemctl status nomad-watcher
+
+# View watcher logs
+sudo journalctl -u nomad-watcher -f
+
+# Restart the watcher
+sudo systemctl restart nomad-watcher
+
+# Stop the watcher
+sudo systemctl stop nomad-watcher
+```
+
+---
+
 ## 🛠️ Troubleshooting
 
 <details>
@@ -408,6 +557,24 @@ newgrp docker
 
 </details>
 
+<details>
+<summary><b>❌ Watcher not sending Telegram alerts</b></summary>
+
+1. Verify your **TOKEN** and **CHAT_ID** are correct in `nomad-watcher.sh`
+2. Test your bot manually:
+   ```bash
+   curl -s -X POST "https://api.telegram.org/bot<YOUR_TOKEN>/sendMessage" \
+        -d chat_id="<YOUR_CHAT_ID>" \
+        -d text="Test message"
+   ```
+3. Ensure the machine has **internet access** to reach `api.telegram.org`
+4. Check that **Nomad CLI** is working:
+   ```bash
+   nomad job allocs <JOB_NAME>
+   ```
+
+</details>
+
 ---
 
 ## 📌 Useful Commands
@@ -432,6 +599,10 @@ nomad server members        # List server members
 nomad node status           # List client nodes
 nomad job status            # List running jobs
 nomad job run <file.nomad>  # Deploy a job
+
+# ─── Monitoring ───
+sudo systemctl status nomad-watcher   # Check watcher status
+sudo journalctl -u nomad-watcher -f   # View watcher logs
 ```
 
 ---
@@ -457,6 +628,7 @@ nomad job run <file.nomad>  # Deploy a job
 - [مرآة Docker Hub (للمناطق المحجوبة)](#-مرآة-docker-hub-للمناطق-المحجوبة)
 - [التحقق من التشغيل](#-التحقق-من-التشغيل)
 - [واجهات الويب](#-واجهات-الويب)
+- [المراقبة والتنبيهات (Nomad Watcher)](#-المراقبة-والتنبيهات-nomad-watcher)
 - [حل المشاكل](#-حل-المشاكل)
 - [أوامر مفيدة](#-أوامر-مفيدة)
 
@@ -464,9 +636,14 @@ nomad job run <file.nomad>  # Deploy a job
 
 ## 🔍 نظرة عامة
 
-يوفر هذا المشروع **سكربت Bash واحد** (`setup-cluster.sh`) يقوم بأتمتة عملية نشر كلاستر **HashiCorp Nomad & Consul** بالكامل على سيرفرات Ubuntu 24.04.
+يوفر هذا المشروع **سكربتين جاهزتين للإنتاج** لنشر ومراقبة كلاستر **HashiCorp Nomad & Consul** على سيرفرات Ubuntu 24.04:
 
-### ماذا يفعل السكربت؟
+| السكربت | الوظيفة |
+|---------|---------|
+| `setup-cluster.sh` | أتمتة عملية نشر الكلاستر بالكامل (Nomad + Consul + Docker) |
+| `nomad-watcher.sh` | مراقبة المهام الجارية وإرسال تنبيهات فورية عبر تلجرام عند حدوث انتقال تلقائي |
+
+### ماذا يفعل `setup-cluster.sh`؟
 
 | الخطوة | الوصف |
 |:------:|-------|
@@ -478,34 +655,52 @@ nomad job run <file.nomad>  # Deploy a job
 | 6️⃣ | تشغيل جميع الخدمات وتفعيل التشغيل التلقائي عند الإقلاع |
 | 7️⃣ | تنفيذ **فحوصات التحقق** للتأكد أن كل شيء يعمل |
 
+### ماذا يفعل `nomad-watcher.sh`؟
+
+| الميزة | الوصف |
+|:------:|-------|
+| 👀 | مراقبة مستمرة لمهمة Nomad محددة كل **5 ثوانٍ** |
+| 🔄 | اكتشاف أحداث **الانتقال التلقائي (Failover)** — عند انتقال المهمة من نود لآخر |
+| 📱 | إرسال **تنبيهات فورية عبر تلجرام** مع تفاصيل كاملة (النود القديم، النود الجديد، المعرفات) |
+| 🚀 | الإشعار عند **تشغيل المهمة لأول مرة** |
+| 🛡️ | تنظيف تلقائي لأسطر ويندوز (**CRLF → LF**) |
+
 ---
 
 ## 🏗️ هيكل الكلاستر
 
 ```
-┌───────────────────────────────────────────────────┐
-│              كلاستر NOMAD & CONSUL                │
-├───────────────────────────────────────────────────┤
-│                                                   │
-│   ┌──────────────┐         ┌──────────────┐       │
-│   │   السيرفر     │         │   كلاينت 1   │       │
-│   │ ────────────  │         │ ────────────  │       │
-│   │ Nomad Server │◄───────►│ Nomad Client │       │
-│   │ Consul Server│◄───────►│ Consul Agent │       │
-│   │ Docker       │         │ Docker       │       │
-│   └──────┬───────┘         └──────┬───────┘       │
-│          │                        │               │
-│          │    ┌──────────────┐    │               │
-│          └───►│   كلاينت 2   │◄───┘               │
-│               │ ────────────  │                    │
-│               │ Nomad Client │                    │
-│               │ Consul Agent │                    │
-│               │ Docker       │                    │
-│               └──────────────┘                    │
-│                                                   │
-│   🌐 واجهة Consul: http://<SERVER_IP>:8500        │
-│   🌐 واجهة Nomad:  http://<SERVER_IP>:4646        │
-└───────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                 كلاستر NOMAD & CONSUL                      │
+├───────────────────────────────────────────────────────────┤
+│                                                            │
+│   ┌──────────────┐         ┌──────────────┐                │
+│   │   السيرفر     │         │   كلاينت 1   │                │
+│   │ ────────────  │         │ ────────────  │                │
+│   │ Nomad Server │◄───────►│ Nomad Client │                │
+│   │ Consul Server│◄───────►│ Consul Agent │                │
+│   │ Docker       │         │ Docker       │                │
+│   └──────┬───────┘         └──────┬───────┘                │
+│          │                        │                        │
+│          │    ┌──────────────┐    │                        │
+│          └───►│   كلاينت 2   │◄───┘                        │
+│               │ ────────────  │                             │
+│               │ Nomad Client │                             │
+│               │ Consul Agent │                             │
+│               │ Docker       │                             │
+│               └──────────────┘                             │
+│                                                            │
+│   🌐 واجهة Consul: http://<SERVER_IP>:8500                 │
+│   🌐 واجهة Nomad:  http://<SERVER_IP>:4646                 │
+│                                                            │
+│   ┌──────────────────────────────────────┐                 │
+│   │  📡 نظام المراقبة (Nomad Watcher)    │                 │
+│   │  ─────────────────────────────────   │                 │
+│   │  🔍 فحص حالة المهمة كل 5 ثوانٍ       │                 │
+│   │  🚨 اكتشاف الانتقال التلقائي         │                 │
+│   │  📱 إرسال تنبيهات عبر تلجرام         │                 │
+│   └──────────────────────────────────────┘                 │
+└───────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -782,6 +977,130 @@ client-02   192.168.1.12:8301   alive   client  1.22.5  2         dc1
 
 ---
 
+## 📡 المراقبة والتنبيهات (Nomad Watcher)
+
+يوفر سكربت `nomad-watcher.sh` **مراقبة لحظية** لمهام Nomad مع **تنبيهات فورية عبر تلجرام** عند حدوث أحداث الانتقال التلقائي (Failover).
+
+### كيف يعمل؟
+
+```
+┌──────────────┐     فحص كل 5 ثوانٍ     ┌──────────────┐
+│              │ ───────────────────►    │              │
+│  سكربت       │   nomad job allocs     │  كلاستر      │
+│  المراقبة    │ ◄───────────────────   │  Nomad       │
+│              │   بيانات التخصيص       │              │
+└──────┬───────┘                        └──────────────┘
+       │
+       │  عند حدوث انتقال أو تشغيل أول
+       ▼
+┌──────────────┐     HTTP POST          ┌──────────────┐
+│              │ ───────────────────►    │              │
+│  curl        │   /sendMessage         │  Telegram    │
+│              │                        │  Bot API     │
+└──────────────┘                        └──────────────┘
+```
+
+### المتطلبات المسبقة للمراقبة
+
+1. يجب أن يكون **Nomad CLI** مثبتاً ومتاحاً على الجهاز
+2. **بوت تلجرام** — أنشئ واحداً عبر [@BotFather](https://t.me/BotFather) على تلجرام
+3. **معرف المحادثة** — احصل عليه من [@userinfobot](https://t.me/userinfobot) أو [@RawDataBot](https://t.me/RawDataBot)
+
+### الإعداد
+
+#### 1. إعداد بيانات الاعتماد
+
+عدّل ملف `nomad-watcher.sh` واملأ بيانات تلجرام:
+
+```bash
+TOKEN="YOUR_TELEGRAM_BOT_TOKEN"       # ← توكن البوت من @BotFather
+CHAT_ID="YOUR_TELEGRAM_CHAT_ID"       # ← معرف المحادثة الخاص بك
+JOB_NAME="demo-app"                   # ← اسم مهمة Nomad المراد مراقبتها
+```
+
+#### 2. النقل والتشغيل
+
+```bash
+# انقل السكربت إلى السيرفر
+scp nomad-watcher.sh user@<عنوان_IP_السيرفر>:~/nomad-watcher.sh
+
+# اعطه صلاحية التنفيذ
+chmod +x nomad-watcher.sh
+
+# شغّله في الخلفية
+nohup bash nomad-watcher.sh &> /var/log/nomad-watcher.log &
+```
+
+> [!TIP]
+> شغّل سكربت المراقبة على **نود السيرفر** حيث يمتلك Nomad CLI وصولاً كاملاً للاستعلام عن تخصيصات المهام.
+
+#### 3. التشغيل كخدمة systemd (الطريقة المُوصى بها)
+
+للاستخدام في الإنتاج، أنشئ خدمة systemd ليعمل سكربت المراقبة تلقائياً عند الإقلاع:
+
+```bash
+sudo tee /etc/systemd/system/nomad-watcher.service > /dev/null <<EOF
+[Unit]
+Description=Nomad Job Watcher with Telegram Alerts
+After=nomad.service
+Requires=nomad.service
+
+[Service]
+ExecStart=/bin/bash /root/nomad-watcher.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable nomad-watcher
+sudo systemctl start nomad-watcher
+```
+
+### أمثلة على التنبيهات
+
+**🚀 تنبيه التشغيل لأول مرة:**
+```
+✅ نظام Nomad:
+التطبيق [demo-app] بدأ العمل بنجاح على السيرفر:
+[client-01]
+(ID: a1b2c3d4)
+```
+
+**🚨 تنبيه الانتقال التلقائي (Failover):**
+```
+🚨 ⚠️ تنبيه طوارئ (Failover) ⚠️
+
+⛔️ السيرفر السابق: [client-01]
+(ID: a1b2c3d4)
+انقطع الاتصال به أو توقف!
+
+✅ النظام تدخل تلقائياً لحماية الخدمة.
+🚀 التطبيق تم نقله ويعمل الآن بنجاح على السيرفر البديل:
+[client-02]
+(ID: e5f6g7h8)
+```
+
+### أوامر إدارة المراقبة
+
+```bash
+# التحقق من حالة سكربت المراقبة
+sudo systemctl status nomad-watcher
+
+# عرض سجلات المراقبة
+sudo journalctl -u nomad-watcher -f
+
+# إعادة تشغيل سكربت المراقبة
+sudo systemctl restart nomad-watcher
+
+# إيقاف سكربت المراقبة
+sudo systemctl stop nomad-watcher
+```
+
+---
+
 ## 🛠️ حل المشاكل
 
 <details>
@@ -830,6 +1149,24 @@ newgrp docker
 
 </details>
 
+<details>
+<summary><b>❌ سكربت المراقبة لا يرسل تنبيهات تلجرام</b></summary>
+
+1. تأكد أن **TOKEN** و **CHAT_ID** صحيحان في `nomad-watcher.sh`
+2. اختبر البوت يدوياً:
+   ```bash
+   curl -s -X POST "https://api.telegram.org/bot<YOUR_TOKEN>/sendMessage" \
+        -d chat_id="<YOUR_CHAT_ID>" \
+        -d text="رسالة تجريبية"
+   ```
+3. تأكد أن الجهاز لديه **وصول للإنترنت** للوصول إلى `api.telegram.org`
+4. تأكد أن **Nomad CLI** يعمل:
+   ```bash
+   nomad job allocs <JOB_NAME>
+   ```
+
+</details>
+
 ---
 
 ## 📌 أوامر مفيدة
@@ -854,6 +1191,10 @@ nomad server members        # عرض أعضاء السيرفر
 nomad node status           # عرض نودات الكلاينت
 nomad job status            # عرض المهام الجارية
 nomad job run <file.nomad>  # نشر مهمة
+
+# ─── المراقبة ───
+sudo systemctl status nomad-watcher   # حالة سكربت المراقبة
+sudo journalctl -u nomad-watcher -f   # عرض سجلات المراقبة
 ```
 
 ---
