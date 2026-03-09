@@ -32,6 +32,7 @@
 - [Prerequisites](#-prerequisites)
 - [Quick Start (Automated Script)](#-quick-start-automated-script)
 - [Manual Installation (Recommended for Restricted Networks)](#-manual-installation-recommended-for-restricted-networks)
+- [Docker Hub Mirror (For Geo-Blocked Regions)](#-docker-hub-mirror-for-geo-blocked-regions)
 - [Verification](#-verification)
 - [Web UIs](#-web-uis)
 - [Troubleshooting](#-troubleshooting)
@@ -258,6 +259,64 @@ sudo mkdir -p /etc/consul.d /opt/consul /etc/nomad.d /opt/nomad
 
 ---
 
+## 🪞 Docker Hub Mirror (For Geo-Blocked Regions)
+
+> [!CAUTION]
+> **In some countries (e.g., Yemen, Iran, Syria, etc.)**, ISPs block or severely throttle access to Docker Hub (`docker.io`). If you try to deploy a job (e.g., `nomad job run demo.nomad`), image pulls will **timeout** and the job will fail.
+
+### The Problem
+
+When deploying applications on the cluster, Nomad instructs Docker to pull container images from Docker Hub. If your region blocks Docker Hub, you'll see errors like:
+
+```
+Failed to pull image "nginx:latest": Timeout exceeded
+Task exceeded timeout and will be killed
+```
+
+### The Solution — Google Docker Mirror
+
+Configure Docker to use **Google's public mirror** (`mirror.gcr.io`) as a fallback registry. This mirror is fast, reliable, and not blocked in most regions.
+
+**Run these 3 commands on ALL nodes (server + clients):**
+
+```bash
+# 1. Create Docker config directory (if it doesn't exist)
+sudo mkdir -p /etc/docker
+
+# 2. Set Google Mirror as the registry mirror
+echo '{"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+
+# 3. Restart Docker to apply the change
+sudo systemctl restart docker
+```
+
+> [!IMPORTANT]
+> You **must** run these commands on **every node** in the cluster (both server and client nodes) **before** deploying any application.
+
+### Verify the Mirror is Active
+
+```bash
+docker info | grep -A 5 "Registry Mirrors"
+```
+
+Expected output:
+```
+ Registry Mirrors:
+  https://mirror.gcr.io/
+```
+
+### Test Image Pull
+
+```bash
+# This should now work without timeout
+docker pull nginx:latest
+```
+
+> [!TIP]
+> After configuring the mirror, Docker will first try to pull from `mirror.gcr.io`. If the image isn't available there, it will automatically fall back to Docker Hub. So your existing workflows won't break.
+
+---
+
 ## ✅ Verification
 
 After setup, verify everything is running:
@@ -395,6 +454,7 @@ nomad job run <file.nomad>  # Deploy a job
 - [المتطلبات](#-المتطلبات)
 - [البدء السريع (السكربت الآلي)](#-البدء-السريع-السكربت-الآلي)
 - [التثبيت اليدوي (للشبكات المقيدة)](#-التثبيت-اليدوي-للشبكات-المقيدة)
+- [مرآة Docker Hub (للمناطق المحجوبة)](#-مرآة-docker-hub-للمناطق-المحجوبة)
 - [التحقق من التشغيل](#-التحقق-من-التشغيل)
 - [واجهات الويب](#-واجهات-الويب)
 - [حل المشاكل](#-حل-المشاكل)
@@ -618,6 +678,64 @@ sudo mkdir -p /etc/consul.d /opt/consul /etc/nomad.d /opt/nomad
 # 6. إعداد Consul و Nomad يدوياً
 # راجع ملف السكربت للاطلاع على أمثلة الإعدادات
 ```
+
+---
+
+## 🪞 مرآة Docker Hub (للمناطق المحجوبة)
+
+> [!CAUTION]
+> **في بعض الدول (مثل اليمن، إيران، سوريا، وغيرها)**، تقوم شركات الاتصالات والإنترنت بحجب أو إبطاء الوصول إلى Docker Hub (`docker.io`). إذا حاولت نشر تطبيق (مثل `nomad job run demo.nomad`)، فسيفشل تحميل الصور بسبب **انتهاء المهلة (Timeout)**.
+
+### المشكلة
+
+عند نشر التطبيقات على الكلاستر، يطلب Nomad من Docker تحميل صور الحاويات من Docker Hub. إذا كانت منطقتك تحجب Docker Hub، ستظهر أخطاء مثل:
+
+```
+Failed to pull image "nginx:latest": Timeout exceeded
+Task exceeded timeout and will be killed
+```
+
+### الحل — مرآة جوجل لـ Docker
+
+قم بتوجيه Docker لاستخدام **مرآة جوجل العامة** (`mirror.gcr.io`) كمستودع بديل. هذه المرآة سريعة وموثوقة وغير محجوبة في أغلب المناطق.
+
+**نفّذ هذه الأوامر الثلاثة على جميع النودات (السيرفر + الكلاينت):**
+
+```bash
+# 1. إنشاء مجلد إعدادات Docker (إذا لم يكن موجوداً)
+sudo mkdir -p /etc/docker
+
+# 2. تعيين مرآة جوجل كمستودع بديل
+echo '{"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+
+# 3. إعادة تشغيل Docker لتطبيق التغيير
+sudo systemctl restart docker
+```
+
+> [!IMPORTANT]
+> يجب تنفيذ هذه الأوامر على **كل نود** في الكلاستر (السيرفر والكلاينت) **قبل** نشر أي تطبيق.
+
+### التحقق من تفعيل المرآة
+
+```bash
+docker info | grep -A 5 "Registry Mirrors"
+```
+
+الخرج المتوقع:
+```
+ Registry Mirrors:
+  https://mirror.gcr.io/
+```
+
+### اختبار تحميل صورة
+
+```bash
+# يجب أن يعمل الآن بدون Timeout
+docker pull nginx:latest
+```
+
+> [!TIP]
+> بعد إعداد المرآة، سيحاول Docker أولاً التحميل من `mirror.gcr.io`. إذا لم تكن الصورة متوفرة هناك، سيعود تلقائياً إلى Docker Hub. لذلك لن تتعطل سير عملك الحالي.
 
 ---
 
